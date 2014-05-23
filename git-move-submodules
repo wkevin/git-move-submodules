@@ -129,7 +129,7 @@ do
 	mkdir -p $ll
 done<.targetSubmodules
 
-# step3. call git-submodule-move for submodules one by one
+# step3. move submodules one by one
 while read line  
 do
 	SRC_PATH=${line%/*}
@@ -143,15 +143,38 @@ do
 	eo "SUBMODULE = $SUBMODULE"
 
 	echo "git mv $line $DEST_PATH/"
-	echo "sed -i '' 's%^\(.submodule.\).*$line.*%\1\"$DEST_PATH/$SUBMODULE\"]%' .gitmodules"
-	if [ $TEST = false ]; then
-		git mv $line $DEST_PATH/
-		if [ 0 != $? ]; then
-			echo exit
-			exit 3
+	echo "sed -i 's%^\(.submodule.\).*$line.*%\1\"$DEST_PATH/$SUBMODULE\"]%' .gitmodules"
+	if [ $TEST = true ]; then
+		continue
+	fi
+
+	# step3.1 call git mv, it can 
+	# i)    modify path in .gitmodules file, but not name
+	# ii)   create submodule new path and copy contents of submodule
+	# iii)  modify worktree in .git/modules/xxx/config file if this file exist
+	git mv $line $DEST_PATH/
+	if [ 0 != $? ]; then
+		echo exit
+		exit 3
+	fi
+
+	# step3.2 modify name in .gitmodules file and add it to index
+	sed -i 's%^\(.submodule.\).*'$line'.*%\1"'$DEST_PATH'/'$SUBMODULE'"]%' .gitmodules
+	git add .gitmodules
+
+	# step3.3 move .git/modules/xxx and modify gitdir in xxx/.git file 
+	#         They are not exist when you havnt git update this submodule
+	if [ 1 -eq 2 ]; then
+		if [ -d .git/modules/$SRC_PATH ]; then
+			mkdir -p .git/modules/$DEST_PATH
+			mv .git/modules/$SRC_PATH/$SUBMODULE .git/modules/$DEST_PATH/
+			sed -i -e s%\(.*gitdir:.\)\(.*\)%\1''% $DEST_PATH/$SUBMODULE/.git
 		fi
-		sed -i 's%^\(.submodule.\).*'$line'.*%\1"'$DEST_PATH'/'$SUBMODULE'"]%' .gitmodules
-		git add .gitmodules
+	else
+		# need not do this
+		# the .git/modules/xxx will not disturb your git work
+		# and when you git clone a new repo,and then git update -i, all things will be ok
+		echo 
 	fi
 	echo ===========================================
 done<.targetSubmodules
